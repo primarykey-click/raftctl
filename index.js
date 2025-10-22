@@ -66,12 +66,10 @@ function runSingleDaemon(config) {
   const server = net.createServer((socket) => {
     socket.on('data', (data) => {
       const command = JSON.parse(data.toString());
-      
       if (command.action === 'state') {
-        socket.write(JSON.stringify({
-          state: LifeRaft.states[raft.state],
-          leader: raft.leader || 'Unknown' // raft.leader is null until a leader is known
-        }));
+        raft.getClusterState((clusterState) => {
+          socket.write(JSON.stringify(clusterState, null, 2));
+        });
       } else if (command.action === 'join') {
         console.log(`Received join command for address: ${command.address}`);
         raft.discoverAndJoin(command.address);
@@ -101,23 +99,22 @@ function queryNode(host, port, command) {
     console.error('Error: Port must be a valid number.');
     process.exit(1);
   }
-
   const client = new net.Socket();
   client.connect(portNum, host, () => {
     client.write(JSON.stringify(command));
   });
-
+  let responseData = '';
   client.on('data', (data) => {
-    console.log(JSON.parse(data.toString()));
-    client.destroy();
+    responseData += data.toString();
   });
-
+  client.on('close', () => {
+    console.log(responseData.trim());
+  });
   client.on('error', (err) => {
     console.error(`Error connecting to ${host}:${port} - ${err.message}`);
     process.exit(1);
   });
 }
-
 
 function sendCommand(command) {
   const config = getConfig();
@@ -142,8 +139,6 @@ function createService() {
         script: fullScriptPath,
     });
 }
-
-// --- COMMAND DEFINITIONS ---
 
 program
   .command('start')
@@ -182,10 +177,20 @@ program
   });
 
 program
-  .command('state <host> <port>')
-  .description('Check the state of a specific node by its command host and port.')
+  .command('state [host] [port]')
+  .description('Check the state of a node or the entire cluster. If a leader is targeted, it returns the state of all nodes.')
   .action((host, port) => {
-    queryNode(host, port, { action: 'state' });
+    if (host && port) {
+      queryNode(host, port, { action: 'state' });
+    } else {
+      console.log('No host/port provided, using config file to determine target...');
+      const config = getConfig();
+      if (config.nodes && Array.isArray(config.nodes)) {
+          console.error('Error: To query a specific node, please provide a host and port, or use a single-node config file.');
+          process.exit(1);
+      }
+      queryNode('127.0.0.1', config.command_port, { action: 'state' });
+    }
   });
 
 program

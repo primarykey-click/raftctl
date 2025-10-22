@@ -96,10 +96,21 @@ Once installed globally, all commands are run using `raftctl`.
     Starts a manager process in the foreground which spawns all defined nodes.
     `raftctl --config /etc/raftctl/local-cluster.json start`
 
--   **Check a Single Node's State:**
-    Connects to any running daemon's command port and prints its state. Does not require a config file.
-    `raftctl state <host> <port>`
-    **Example:** `raftctl state localhost 10000`
+-   **Check Node/Cluster State:**
+    Connects to any running daemon to query its state. The behavior depends on the node's role:
+    *   **If you target a FOLLOWER**, it will return its own state and the address of the leader.
+    *   **If you target the LEADER**, it will return the state of every node in the entire cluster.
+
+    `raftctl state [host] [port]`
+
+    **Examples:**
+    ```bash
+    # Query a specific node directly
+    raftctl state localhost 10000
+
+    # Query the node defined in a config file
+    raftctl --config /etc/raftctl/node1.json state
+    ```
 
 -   **Join a Cluster:**
     Tells a new node (defined in a config file) to join an existing cluster.

@@ -163,16 +163,13 @@ LifeRaft.prototype.discoverAndJoin = function discoverAndJoin(address) {
   const url = new URL(address);
   const socket = net.connect({ port: +url.port, host: url.hostname });
   const raft = this;
-
   socket.on('connect', () => {
     this.write(socket, { name: 'discover-leader' });
   });
-
   socket.on('data', (buffer) => {
     var packet;
     try { packet = JSON.parse(buffer.toString()); }
     catch (e) { return socket.destroy(); }
-
     if (packet.name === 'leader-is' && packet.leader) {
       debug('discovered leader is %s', packet.leader);
       if (packet.leader !== this.address) {
@@ -181,9 +178,60 @@ LifeRaft.prototype.discoverAndJoin = function discoverAndJoin(address) {
     }
     socket.destroy();
   });
-
   socket.on('error', (err) => {
     debug('discovery connection to %s failed: %s', address, err.message);
+  });
+};
+
+LifeRaft.prototype.getClusterState = function getClusterState(callback) {
+  if (this.state !== LEADER) {
+    // If we are not the leader, just report our own status.
+    return callback({
+      address: this.address,
+      state: LifeRaft.states[this.state],
+      leader: this.leader,
+      notice: "This is the state of a single node. Query the leader for full cluster status."
+    });
+  }
+
+  // If we are the leader, we build the state for the whole cluster.
+  const clusterState = [{
+    address: this.address,
+    state: LifeRaft.states[this.state],
+    leader: null // The leader has no leader
+  }];
+
+  async.map(this.connections, (socket, next) => {
+    const tempSocket = net.connect({ port: socket.remotePort, host: socket.remoteAddress });
+    let responseData = '';
+
+    tempSocket.on('connect', () => {
+      this.write(tempSocket, { name: 'get-state' });
+    });
+
+    tempSocket.on('data', (buffer) => {
+      responseData += buffer.toString();
+    });
+
+    tempSocket.on('close', () => {
+      try {
+        const data = JSON.parse(responseData);
+        next(null, data); // Success
+      } catch (e) {
+        next(e); // Failure
+      }
+    });
+
+    tempSocket.on('error', (err) => {
+      next(err);
+    });
+  }, (err, results) => {
+    if (err) {
+      debug('Error polling followers for state:', err);
+      // Even if polling fails, return at least the leader's state.
+      return callback(clusterState);
+    }
+    callback(clusterState.concat(results));
   });
 };
 
@@ -191,6 +239,15 @@ LifeRaft.prototype.on('data', function data(packet, reply) {
   if (packet.name === 'discover-leader') {
     const leader = this.state === LEADER ? this.address : this.leader;
     reply({ name: 'leader-is', leader: leader });
+    return;
+  }
+  
+  if (packet.name === 'get-state') {
+    reply({
+      address: this.address,
+      state: LifeRaft.states[this.state],
+      leader: this.leader
+    });
     return;
   }
 
@@ -252,17 +309,9 @@ LifeRaft.prototype.election = function election() {
   }, this);
 };
 
-/**
- * *** THIS IS THE FIX ***
- * Simple getter which returns the address of the server.
- *
- * @returns {String}
- * @api public
- */
 Object.defineProperty(LifeRaft.prototype, 'address', {
   get: function address() {
     var addr = this.server.address();
-    // Prepend the protocol to make it a valid URL for parsing.
     return 'tcp://' + addr.address + ':' + addr.port;
   }
 });
@@ -305,4 +354,3 @@ LifeRaft.prototype.save = function save(fn) {
 };
 
 module.exports = LifeRaft;
-
