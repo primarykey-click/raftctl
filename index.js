@@ -8,11 +8,10 @@ const util = require('util');
 const { fork } = require('child_process');
 const { Service } = require('node-linux');
 const LifeRaft = require('./liferaft.js');
-const pkg = require('./package.json'); // <-- Import package.json
+const pkg = require('./package.json');
 
 const program = new Command();
 
-// Add the built-in version option
 program
   .version(pkg.version, '-v, --version', 'Output the current version');
 
@@ -111,19 +110,26 @@ function sendCommand(command) {
   });
 }
 
+/**
+ * *** THIS IS THE FIX ***
+ * The createService function now correctly constructs the `script` property.
+ */
 function createService() {
     const config = getConfig();
     const configPath = path.resolve(program.opts().config);
-    const isCluster = config.nodes && Array.isArray(config.nodes);
+
     if (!config.serviceName) {
         console.error('Error: "serviceName" must be defined in the config file to create a service.');
         process.exit(1);
     }
+
+    // Combine the script path and its arguments into a single string.
+    const fullScriptPath = `${path.resolve(__filename)} --config ${configPath} start`;
+
     return new Service({
         name: config.serviceName,
         description: config.description || `Raft Consensus Daemon (${config.serviceName})`,
-        script: path.resolve(__filename),
-        scriptOptions: `--config ${configPath} start`,
+        script: fullScriptPath, // Pass the combined string here
     });
 }
 
@@ -197,7 +203,6 @@ program
     svc.uninstall();
   });
 
-// <-- Add the new command here
 program
   .command('version')
   .description('Display the application version')
