@@ -76,6 +76,54 @@ A JSON object containing a top-level `serviceName` and a `nodes` array. This for
 }
 ```
 
+### Event-Driven Scripting
+
+RaftCTL can execute custom JavaScript files when a node changes its state (e.g., becomes a leader or follower). This allows you to build powerful, automated reactions to cluster events, such as reconfiguring a proxy or notifying an external service.
+
+To use this feature, add an `events` object to your configuration file. The keys are the event names (`leader`, `follower`), and the values are the paths to the scripts you want to execute. It's highly recommended to use **absolute paths** for scripts, especially when running as a service.
+
+**1. Update your configuration file:**
+
+Add the `events` block to your node's configuration.
+
+**`/etc/raftctl/node1.json`**
+```json
+{
+  "address": "tcp://localhost:8089",
+  "command_port": 10000,
+  "serviceName": "raft-daemon-1",
+  "logFile": "/var/log/raft-daemon-1.log",
+  "events": {
+    "leader": "/etc/raftctl/scripts/on_leader.js",
+    "follower": "/etc/raftctl/scripts/on_follower.js"
+  }
+}
+```
+
+**2. Create the event scripts:**
+
+Create the corresponding files. The scripts are executed with Node.js.
+
+**`/etc/raftctl/scripts/on_leader.js`**
+```javascript
+// on_leader.js
+const fs = require('fs');
+const path = require('path');
+
+const message = `[${new Date().toISOString()}] This node is now the LEADER.\n`;
+const statusFile = path.join('/var/run/raftctl', 'status.txt');
+
+// Ensure the directory exists
+fs.mkdirSync(path.dirname(statusFile), { recursive: true });
+
+// Append a status update to a file
+fs.appendFileSync(statusFile, message);
+
+// You could also execute a shell command, notify a service, etc.
+```
+
+**How It Works:** The scripts are executed in a separate process using Node.js's `child_process.fork()`, so they will not block the main daemon's event loop.
+
 ## Command-Line Interface (CLI)
 
 Once installed globally, all commands are run using `raftctl`.
@@ -87,8 +135,7 @@ Once installed globally, all commands are run using `raftctl`.
 
 -   **Get Version:**
     Prints the application's version number.
-    `raftctl version`
-    (You can also use the standard flags: `raftctl -v` or `raftctl --version`)
+    `raftctl version` (or `raftctl -v`, `raftctl --version`)
 
 -   **Start a Daemon or Cluster (Manual):**
     Starts a manager process in the foreground which spawns all defined nodes.
@@ -118,7 +165,7 @@ Once installed globally, all commands are run using `raftctl`.
 
 2.  **Create the configuration directory:** `sudo mkdir -p /etc/raftctl`
 
-3.  **Create a multi-node cluster configuration file** at `/etc/raftctl/local-cluster.json`, as shown in the example above.
+3.  **Create a multi-node cluster configuration file** at `/etc/raftctl/local-cluster.json`.
 
 4.  **Create single-node "pointer" files.** These are needed to query individual nodes with the `state` command.
     *   `/etc/raftctl/node1.json` (containing only the object for the node at port 8089)
@@ -134,7 +181,6 @@ Once installed globally, all commands are run using `raftctl`.
     ```bash
     sudo systemctl start raft-cluster-local
     ```
-    The service manager will start, spawn processes for both nodes, and they will auto-cluster.
 
 7.  **Check the logs:**
     ```bash
@@ -144,13 +190,8 @@ Once installed globally, all commands are run using `raftctl`.
 
 8.  **Verify the final state of the individual nodes:**
     ```bash
-    # Check node 1 using its pointer config file
     raftctl --config /etc/raftctl/node1.json state
-    # Expected output: { "state": "LEADER" } (or FOLLOWER)
-
-    # Check node 2 using its pointer config file
     raftctl --config /etc/raftctl/node2.json state
-    # Expected output: { "state": "FOLLOWER" } (or LEADER)
     ```
 
 9.  **Stop the entire cluster with one command:**
