@@ -1,0 +1,42 @@
+{
+  "serviceName": "raft-cluster-local",
+  "description": "My Local 3-Node Raft Cluster",
+  "nodes": [
+    {
+      "address": "tcp://localhost:8089",
+      "command_port": 10000,
+      "logFile": "/var/log/raft-daemon-1.log",
+      "election min": "200 millisecond",
+      "election max": "1 second",
+      "clusterNodes": [
+        "tcp://localhost:8089",
+        "tcp://localhost:8090",
+        "tcp://localhost:8091"
+      ]
+    },
+    {
+      "address": "tcp://localhost:8090",
+      "command_port": 10001,
+      "logFile": "/var/log/raft-daemon-2.log",
+      "election min": "200 millisecond",
+      "election max": "1 second",
+      "clusterNodes": [
+        "tcp://localhost:8089",
+        "tcp://localhost:8090",
+        "tcp://localhost:8091"
+      ]
+    },
+    {
+      "address": "tcp://localhost:8091",
+      "command_port": 10002,
+      "logFile": "/var/log/raft-daemon-3.log",
+      "election min": "200 millisecond",
+      "election max": "1 second",
+      "clusterNodes": [
+        "tcp://localhost:8089",
+        "tcp://localhost:8090",
+        "tcp://localhost:8091"
+      ]
+    }
+  ]
+}

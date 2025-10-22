@@ -12,11 +12,14 @@ const LifeRaft = require('./liferaft.js');
 const program = new Command();
 
 program
-  .option('-c, --config <path>', 'path to the config file', '/etc/raftctl/config.json');
+  .option(
+    '-c, --config <path>',
+    'path to the config file',
+    '/etc/raftctl/config.json'
+  );
 
 function getConfig() {
   const options = program.opts();
-  // Resolve to an absolute path for the service
   const configPath = path.resolve(options.config);
   if (!fs.existsSync(configPath)) {
     console.error(`Error: Configuration file not found at ${configPath}`);
@@ -25,24 +28,22 @@ function getConfig() {
   return JSON.parse(fs.readFileSync(configPath));
 }
 
-// Set up logging to a file (only for the daemon)
-function setupLogging(config) {
-  if (!config.logFile) return;
+// This is the core daemon logic for a SINGLE node.
+function runSingleDaemon(config) {
+  if (!config) {
+    console.error('Error: A valid configuration object must be provided to run a daemon.');
+    return;
+  }
 
-  const logStream = fs.createWriteStream(config.logFile, { flags: 'a' });
-  
-  // Overwrite console.log and console.error to redirect to the log file
-  const logger = (stream, ...args) => {
-    stream.write(util.format(...args) + '\n');
-  };
-
-  console.log = (...args) => logger(logStream, ...args);
-  console.error = (...args) => logger(logStream, ...args);
-}
-
-function startDaemon() {
-  const config = getConfig();
-  setupLogging(config);
+  const logIdentifier = config.address || 'daemon';
+  if (config.logFile) {
+    const logStream = fs.createWriteStream(config.logFile, { flags: 'a' });
+    const logger = (stream, ...args) => {
+      stream.write(`[${logIdentifier}] ` + util.format(...args) + '\n');
+    };
+    console.log = (...args) => logger(logStream, ...args);
+    console.error = (...args) => logger(logStream, ...args);
+  }
 
   console.log(`--- Starting Daemon: ${new Date().toISOString()} ---`);
   
@@ -58,7 +59,7 @@ function startDaemon() {
       const script = config.events[event];
       raft.on(event, () => {
         console.log(`[Event: ${event}] Executing script: ${script}`);
-        fork(script);
+        fork(path.resolve(script));
       });
     }
   }
@@ -95,6 +96,10 @@ function startDaemon() {
 
 function sendCommand(command) {
   const config = getConfig();
+  if (config.nodes && Array.isArray(config.nodes)) {
+    console.error('Error: This command requires a configuration file for a single node, not a cluster.');
+    process.exit(1);
+  }
   const client = new net.Socket();
   client.connect(config.command_port, '127.0.0.1', () => {
     client.write(JSON.stringify(command));
@@ -108,58 +113,94 @@ function sendCommand(command) {
   });
 }
 
-// Function to create the service object
 function createService() {
     const config = getConfig();
     const configPath = path.resolve(program.opts().config);
 
+    const isCluster = config.nodes && Array.isArray(config.nodes);
+
     if (!config.serviceName) {
-        console.error('Error: "serviceName" must be defined in the config file.');
+        console.error('Error: "serviceName" must be defined in the config file to create a service.');
         process.exit(1);
     }
 
     return new Service({
         name: config.serviceName,
-        description: `Raft Consensus Daemon Node (${config.serviceName})`,
-        // The script path and the arguments for it
-        script: path.resolve(__dirname, 'index.js'),
+        description: config.description || `Raft Consensus Daemon (${config.serviceName})`,
+        script: path.resolve(__filename),
         scriptOptions: `--config ${configPath} start`,
-        // Optional: Run as a specific user.
-        // user: 'node'
     });
 }
 
+// --- COMMAND DEFINITIONS ---
+
 program
   .command('start')
-  .description('Start the consensus daemon')
-  .action(startDaemon);
+  .description('Start one or more daemon instances from a configuration file.')
+  .action(() => {
+    const config = getConfig();
+    const nodesToStart = (config.nodes && Array.isArray(config.nodes)) ? config.nodes : [config];
+    const childProcesses = [];
+
+    console.log(`[Manager] Spawning ${nodesToStart.length} node process(es)...`);
+
+    nodesToStart.forEach(nodeConfig => {
+      const args = ['start-node', '--config-json', JSON.stringify(nodeConfig)];
+      const child = fork(path.resolve(__filename), args);
+      childProcesses.push(child);
+      console.log(`[Manager] - Spawned process for node at ${nodeConfig.address}`);
+    });
+
+    // Keep the manager process alive
+    setInterval(() => {}, 1000 * 60 * 60);
+    console.log('[Manager] All processes spawned. Manager is now running. Press Ctrl+C to stop.');
+
+    // Graceful shutdown handler
+    const shutdown = () => {
+      console.log('[Manager] Shutdown signal received. Terminating child processes...');
+      childProcesses.forEach(child => {
+        child.kill();
+      });
+      process.exit(0);
+    };
+
+    process.on('SIGTERM', shutdown); // `systemctl stop`
+    process.on('SIGINT', shutdown);  // Ctrl+C
+  });
+
+program
+  .command('start-node', { hidden: true })
+  .description('Internal command to run a single daemon instance.')
+  .requiredOption('--config-json <json>', 'The node config as a JSON string')
+  .action((options) => {
+    const config = JSON.parse(options.configJson);
+    runSingleDaemon(config);
+  });
 
 program
   .command('state')
-  .description('Check the state of the node')
+  .description('Check the state of a single node.')
   .action(() => sendCommand({ action: 'state' }));
 
 program
   .command('join <address>')
-  .description('Join the cluster by contacting any node at <address>')
+  .description('Tell a single node to join a cluster by contacting any member at <address>')
   .action((address) => sendCommand({ action: 'join', address: address }));
 
 program
   .command('svcinstall')
-  .description('Install the daemon as a systemd service')
+  .description('Install a daemon or cluster as a systemd service.')
   .action(() => {
     const svc = createService();
     svc.on('install', () => {
-        console.log(`Service "${svc.name}" installed.`);
-        console.log('You can now start it with:');
-        console.log(`sudo systemctl start ${svc.name}`);
+        console.log(`Service "${svc.name}" installed. Start with: sudo systemctl start ${svc.name}`);
     });
     svc.install();
   });
 
 program
   .command('svcuninstall')
-  .description('Uninstall the systemd service')
+  .description('Uninstall a systemd service.')
   .action(() => {
     const svc = createService();
     svc.on('uninstall', () => {
@@ -169,4 +210,3 @@ program
   });
 
 program.parse(process.argv);
-
