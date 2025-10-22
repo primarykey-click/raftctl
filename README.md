@@ -1,3 +1,4 @@
+
 # RaftCTL - A Node.js Raft Consensus Daemon
 
 RaftCTL is a lightweight, self-clustering consensus daemon and command-line tool for managing highly-available services using the Raft protocol. It is designed to be a configurable and easy-to-use tool for creating small, fault-tolerant clusters.
@@ -83,6 +84,11 @@ Once installed globally, all commands are run using `raftctl`.
 
 -   **Get Help:**
     `raftctl --help`
+
+-   **Get Version:**
+    Prints the application's version number.
+    `raftctl version`
+    (You can also use the standard flags: `raftctl -v` or `raftctl --version`)
 
 -   **Start a Daemon or Cluster (Manual):**
     Starts a manager process in the foreground which spawns all defined nodes.

@@ -8,8 +8,13 @@ const util = require('util');
 const { fork } = require('child_process');
 const { Service } = require('node-linux');
 const LifeRaft = require('./liferaft.js');
+const pkg = require('./package.json'); // <-- Import package.json
 
 const program = new Command();
+
+// Add the built-in version option
+program
+  .version(pkg.version, '-v, --version', 'Output the current version');
 
 program
   .option(
@@ -18,6 +23,7 @@ program
     '/etc/raftctl/config.json'
   );
 
+// --- All other functions (getConfig, runSingleDaemon, etc.) remain unchanged ---
 function getConfig() {
   const options = program.opts();
   const configPath = path.resolve(options.config);
@@ -28,13 +34,11 @@ function getConfig() {
   return JSON.parse(fs.readFileSync(configPath));
 }
 
-// This is the core daemon logic for a SINGLE node.
 function runSingleDaemon(config) {
   if (!config) {
     console.error('Error: A valid configuration object must be provided to run a daemon.');
     return;
   }
-
   const logIdentifier = config.address || 'daemon';
   if (config.logFile) {
     const logStream = fs.createWriteStream(config.logFile, { flags: 'a' });
@@ -44,16 +48,13 @@ function runSingleDaemon(config) {
     console.log = (...args) => logger(logStream, ...args);
     console.error = (...args) => logger(logStream, ...args);
   }
-
   console.log(`--- Starting Daemon: ${new Date().toISOString()} ---`);
-  
   const raft = new LifeRaft({
     host: '127.0.0.1',
     port: parseInt(new URL(config.address).port),
     'election min': config['election min'],
     'election max': config['election max'],
   });
-
   if (config.events) {
     for (const event in config.events) {
       const script = config.events[event];
@@ -63,7 +64,6 @@ function runSingleDaemon(config) {
       });
     }
   }
-
   const server = net.createServer((socket) => {
     socket.on('data', (data) => {
       const command = JSON.parse(data.toString());
@@ -76,11 +76,9 @@ function runSingleDaemon(config) {
       }
     });
   });
-
   server.listen(config.command_port, '127.0.0.1', () => {
     console.log(`Command server listening on port ${config.command_port}`);
   });
-
   raft.on('listen', () => {
     console.log(`Raft node listening at ${raft.address}`);
     if (config.clusterNodes && config.clusterNodes.length > 0) {
@@ -116,14 +114,11 @@ function sendCommand(command) {
 function createService() {
     const config = getConfig();
     const configPath = path.resolve(program.opts().config);
-
     const isCluster = config.nodes && Array.isArray(config.nodes);
-
     if (!config.serviceName) {
         console.error('Error: "serviceName" must be defined in the config file to create a service.');
         process.exit(1);
     }
-
     return new Service({
         name: config.serviceName,
         description: config.description || `Raft Consensus Daemon (${config.serviceName})`,
@@ -141,21 +136,15 @@ program
     const config = getConfig();
     const nodesToStart = (config.nodes && Array.isArray(config.nodes)) ? config.nodes : [config];
     const childProcesses = [];
-
     console.log(`[Manager] Spawning ${nodesToStart.length} node process(es)...`);
-
     nodesToStart.forEach(nodeConfig => {
       const args = ['start-node', '--config-json', JSON.stringify(nodeConfig)];
       const child = fork(path.resolve(__filename), args);
       childProcesses.push(child);
       console.log(`[Manager] - Spawned process for node at ${nodeConfig.address}`);
     });
-
-    // Keep the manager process alive
     setInterval(() => {}, 1000 * 60 * 60);
     console.log('[Manager] All processes spawned. Manager is now running. Press Ctrl+C to stop.');
-
-    // Graceful shutdown handler
     const shutdown = () => {
       console.log('[Manager] Shutdown signal received. Terminating child processes...');
       childProcesses.forEach(child => {
@@ -163,9 +152,8 @@ program
       });
       process.exit(0);
     };
-
-    process.on('SIGTERM', shutdown); // `systemctl stop`
-    process.on('SIGINT', shutdown);  // Ctrl+C
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
   });
 
 program
@@ -207,6 +195,14 @@ program
         console.log(`Service "${svc.name}" uninstalled.`);
     });
     svc.uninstall();
+  });
+
+// <-- Add the new command here
+program
+  .command('version')
+  .description('Display the application version')
+  .action(() => {
+    console.log(pkg.version);
   });
 
 program.parse(process.argv);
