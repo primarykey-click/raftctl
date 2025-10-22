@@ -1,0 +1,30 @@
+# ## .gitignore ##
+
+# Dependencies
+# These are installed via `npm install` and should not be in source control.
+node_modules/
+
+# Database Files
+# The LevelDB database is runtime state, not source code.
+db/
+
+# Logs
+# Ignore log files, including npm's debug logs.
+*.log
+npm-debug.log*
+
+# Environment Variables
+# Never commit secrets or environment-specific variables.
+.env
+
+# OS-generated files
+# Mac
+.DS_Store
+# Windows
+Thumbs.db
+
+# Editor Directories
+# Ignore configuration folders for common code editors.
+.vscode/
+.idea/
+

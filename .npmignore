@@ -1,0 +1,27 @@
+# ## .npmignore ##
+
+# Database Files
+# The database should never be part of the published package.
+db/
+
+# Example Configuration
+# Users will create their own configurations in /etc/raftctl.
+# These are just development examples.
+config1.json
+config2.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Editor Directories
+.vscode/
+.idea/
+
+# Gitignore file itself
+.gitignore
+

@@ -1,0 +1,17 @@
+{
+  "address": "tcp://localhost:8089",
+  "command_port": 10000,
+  "serviceName": "raft-daemon-1",
+  "logFile": "/var/log/raft-daemon-1.log",
+  "election min": "200 millisecond",
+  "election max": "1 second",
+  "events": {
+    "leader": "./on_leader.js",
+    "follower": "./on_follower.js"
+  },
+  "clusterNodes": [
+    "tcp://localhost:8089",
+    "tcp://localhost:8090"
+  ]
+}
+

@@ -1,0 +1,28 @@
+{
+  "name": "raftctl",
+  "version": "1.0.0",
+  "description": "A lightweight, self-clustering consensus daemon and command-line tool for managing highly-available services using the Raft protocol.",
+  "main": "index.js",
+  "bin": {
+    "raftctl": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js start"
+  },
+  "dependencies": {
+    "async": "^3.2.4",
+    "commander": "^11.0.0",
+    "demolish": "^1.0.0",
+    "diagnostics": "^2.0.2",
+    "extendible": "^0.1.1",
+    "failure": "^1.1.0",
+    "level": "^8.0.0",
+    "node-linux": "^0.1.12",
+    "one-time": "^1.0.0",
+    "primus": "^8.0.6",
+    "primus-emitter": "^3.1.1",
+    "primus-multiplex": "^3.2.1",
+    "stream-defaults": "^0.1.0",
+    "tick-tock": "^1.0.0"
+  }
+}
