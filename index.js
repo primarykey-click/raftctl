@@ -22,6 +22,7 @@ program
     '/etc/raftctl/config.json'
   );
 
+// --- All other functions (getConfig, runSingleDaemon, etc.) remain mostly unchanged ---
 function getConfig() {
   const options = program.opts();
   const configPath = path.resolve(options.config);
@@ -32,13 +33,12 @@ function getConfig() {
   return JSON.parse(fs.readFileSync(configPath));
 }
 
-// This is the core daemon logic for a SINGLE node.
 function runSingleDaemon(config) {
+  // ... (this function is unchanged)
   if (!config) {
     console.error('Error: A valid configuration object must be provided to run a daemon.');
     return;
   }
-
   const logIdentifier = config.address || 'daemon';
   if (config.logFile) {
     const logStream = fs.createWriteStream(config.logFile, { flags: 'a' });
@@ -48,20 +48,14 @@ function runSingleDaemon(config) {
     console.log = (...args) => logger(logStream, ...args);
     console.error = (...args) => logger(logStream, ...args);
   }
-
   console.log(`--- Starting Daemon: ${new Date().toISOString()} ---`);
-  
-  // *** THIS IS THE FIX ***
-  // Parse the full URL to get both the hostname and the port.
   const raftAddress = new URL(config.address);
-
   const raft = new LifeRaft({
-    host: raftAddress.hostname, // Use the hostname from the config
-    port: parseInt(raftAddress.port), // Use the port from the config
+    host: raftAddress.hostname,
+    port: parseInt(raftAddress.port),
     'election min': config['election min'],
     'election max': config['election max'],
   });
-
   if (config.events) {
     for (const event in config.events) {
       const script = config.events[event];
@@ -71,8 +65,6 @@ function runSingleDaemon(config) {
       });
     }
   }
-
-  // The command server should still listen on localhost for security.
   const server = net.createServer((socket) => {
     socket.on('data', (data) => {
       const command = JSON.parse(data.toString());
@@ -85,11 +77,9 @@ function runSingleDaemon(config) {
       }
     });
   });
-
   server.listen(config.command_port, '127.0.0.1', () => {
     console.log(`Command server listening on port ${config.command_port}`);
   });
-
   raft.on('listen', () => {
     console.log(`Raft node listening at ${raft.address}`);
     if (config.clusterNodes && config.clusterNodes.length > 0) {
@@ -103,38 +93,51 @@ function runSingleDaemon(config) {
   });
 }
 
-// --- The rest of the file remains unchanged ---
+// NEW function for direct host/port queries
+function queryNode(host, port, command) {
+  const portNum = parseInt(port);
+  if (isNaN(portNum)) {
+    console.error('Error: Port must be a valid number.');
+    process.exit(1);
+  }
 
+  const client = new net.Socket();
+  client.connect(portNum, host, () => {
+    client.write(JSON.stringify(command));
+  });
+
+  client.on('data', (data) => {
+    console.log(JSON.parse(data.toString()));
+    client.destroy();
+  });
+
+  client.on('error', (err) => {
+    console.error(`Error connecting to ${host}:${port} - ${err.message}`);
+    process.exit(1);
+  });
+}
+
+
+// This function is now only used by commands that REQUIRE a config file, like 'join'.
 function sendCommand(command) {
   const config = getConfig();
   if (config.nodes && Array.isArray(config.nodes)) {
     console.error('Error: This command requires a configuration file for a single node, not a cluster.');
     process.exit(1);
   }
-  const client = new net.Socket();
-  client.connect(config.command_port, '127.0.0.1', () => {
-    client.write(JSON.stringify(command));
-  });
-  client.on('data', (data) => {
-    console.log(JSON.parse(data.toString()));
-    client.destroy();
-  });
-  client.on('error', (err) => {
-    console.error('Error connecting to daemon. Is it running?');
-  });
+  // We can reuse the queryNode function here!
+  queryNode('127.0.0.1', config.command_port, command);
 }
 
 function createService() {
+    // ... (this function is unchanged)
     const config = getConfig();
     const configPath = path.resolve(program.opts().config);
-
     if (!config.serviceName) {
         console.error('Error: "serviceName" must be defined in the config file to create a service.');
         process.exit(1);
     }
-
     const fullScriptPath = `${path.resolve(__filename)} --config ${configPath} start`;
-
     return new Service({
         name: config.serviceName,
         description: config.description || `Raft Consensus Daemon (${config.serviceName})`,
@@ -142,10 +145,13 @@ function createService() {
     });
 }
 
+// --- COMMAND DEFINITIONS ---
+
 program
   .command('start')
   .description('Start one or more daemon instances from a configuration file.')
   .action(() => {
+    // ... (this command's action is unchanged)
     const config = getConfig();
     const nodesToStart = (config.nodes && Array.isArray(config.nodes)) ? config.nodes : [config];
     const childProcesses = [];
@@ -178,18 +184,29 @@ program
     runSingleDaemon(config);
   });
 
+/**
+ * *** THIS IS THE FIX ***
+ * The 'state' command is updated to accept host and port arguments
+ * and no longer uses a config file.
+ */
 program
-  .command('state')
-  .description('Check the state of a single node.')
-  .action(() => sendCommand({ action: 'state' }));
+  .command('state <host> <port>')
+  .description('Check the state of a specific node by its command host and port.')
+  .action((host, port) => {
+    queryNode(host, port, { action: 'state' });
+  });
 
 program
   .command('join <address>')
   .description('Tell a single node to join a cluster by contacting any member at <address>')
-  .action((address) => sendCommand({ action: 'join', address: address }));
+  .action((address) => {
+    // This command still needs a config file to know WHICH node should do the joining.
+    sendCommand({ action: 'join', address: address });
+  });
 
 program
   .command('svcinstall')
+  // ... (rest of commands are unchanged)
   .description('Install a daemon or cluster as a systemd service.')
   .action(() => {
     const svc = createService();
