@@ -1,6 +1,6 @@
 {
   "name": "raftctl",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "A lightweight, self-clustering consensus daemon and command-line tool for managing highly-available services using the Raft protocol.",
   "repository": {
     "type": "git",
