@@ -45,7 +45,6 @@ function runSingleDaemon(config)
   if (config.logFile)
   {
     const logStream = fs.createWriteStream(config.logFile, { flags: 'a' });
-    // <-- FIX: Add timestamp to the logger.
     const logger = (stream, ...args) =>
     {
       const timestamp = new Date().toISOString();
@@ -105,12 +104,15 @@ function runSingleDaemon(config)
     console.log(`Raft node listening at ${raft.address}`);
     if (config.clusterNodes && config.clusterNodes.length > 0)
     {
-      console.log('Attempting to join cluster nodes...');
+      console.log('Attempting to bootstrap connections with cluster nodes...');
       config.clusterNodes.forEach(nodeAddress =>
       {
         if (nodeAddress !== raft.address)
         {
-          raft.discoverAndJoin(nodeAddress);
+          // *** THIS IS THE FIX ***
+          // Use the direct "join" for bootstrapping to establish
+          // persistent connections immediately.
+          raft.join(nodeAddress);
         }
       });
     }
@@ -182,15 +184,12 @@ program
     const config = getConfig();
     const nodesToStart = (config.nodes && Array.isArray(config.nodes)) ? config.nodes : [config];
     const childProcesses = [];
-
     const log = (...args) =>
     {
       const timestamp = new Date().toISOString();
       console.log(`[${timestamp}] [Manager]`, ...args);
     }
-
     log(`Spawning ${nodesToStart.length} node process(es)...`);
-
     nodesToStart.forEach(nodeConfig =>
     {
       const args = ['start-node', '--config-json', JSON.stringify(nodeConfig)];
@@ -198,10 +197,8 @@ program
       childProcesses.push(child);
       log(`- Spawned process for node at ${nodeConfig.address}`);
     });
-
     setInterval(() => {}, 1000 * 60 * 60);
     log('All processes spawned. Manager is now running. Press Ctrl+C to stop.');
-
     const shutdown = () =>
     {
       log('Shutdown signal received. Terminating child processes...');
