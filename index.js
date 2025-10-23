@@ -45,14 +45,16 @@ function runSingleDaemon(config)
   if (config.logFile)
   {
     const logStream = fs.createWriteStream(config.logFile, { flags: 'a' });
+    // <-- FIX: Add timestamp to the logger.
     const logger = (stream, ...args) =>
     {
-      stream.write(`[${logIdentifier}] ` + util.format(...args) + '\n');
+      const timestamp = new Date().toISOString();
+      stream.write(`[${timestamp}] [${logIdentifier}] ` + util.format(...args) + '\n');
     };
     console.log = (...args) => logger(logStream, ...args);
     console.error = (...args) => logger(logStream, ...args);
   }
-  console.log(`--- Starting Daemon: ${new Date().toISOString()} ---`);
+  console.log(`--- Starting Daemon ---`);
   const raftAddress = new URL(config.address);
   const raft = new LifeRaft({
     host: raftAddress.hostname,
@@ -180,19 +182,29 @@ program
     const config = getConfig();
     const nodesToStart = (config.nodes && Array.isArray(config.nodes)) ? config.nodes : [config];
     const childProcesses = [];
-    console.log(`[Manager] Spawning ${nodesToStart.length} node process(es)...`);
+
+    const log = (...args) =>
+    {
+      const timestamp = new Date().toISOString();
+      console.log(`[${timestamp}] [Manager]`, ...args);
+    }
+
+    log(`Spawning ${nodesToStart.length} node process(es)...`);
+
     nodesToStart.forEach(nodeConfig =>
     {
       const args = ['start-node', '--config-json', JSON.stringify(nodeConfig)];
       const child = fork(path.resolve(__filename), args);
       childProcesses.push(child);
-      console.log(`[Manager] - Spawned process for node at ${nodeConfig.address}`);
+      log(`- Spawned process for node at ${nodeConfig.address}`);
     });
+
     setInterval(() => {}, 1000 * 60 * 60);
-    console.log('[Manager] All processes spawned. Manager is now running. Press Ctrl+C to stop.');
+    log('All processes spawned. Manager is now running. Press Ctrl+C to stop.');
+
     const shutdown = () =>
     {
-      console.log('[Manager] Shutdown signal received. Terminating child processes...');
+      log('Shutdown signal received. Terminating child processes...');
       childProcesses.forEach(child =>
       {
         child.kill();

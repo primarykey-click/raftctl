@@ -46,6 +46,7 @@ function LifeRaft(address, options)
   };
   this.timers = new TickTock(this);
   this.connections = [];
+  this.initialized = false; // <-- FIX: Add initialized flag.
 
   const rootDb = new this.options.adapter(this.options.path);
   this.log = rootDb.sublevel('log', { valueEncoding: 'json' });
@@ -301,10 +302,11 @@ LifeRaft.prototype.on('data', function data(packet, reply)
   switch (this.state)
   {
     case FOLLOWER:
+    case CANDIDATE: // Allow candidates to also accept a leader.
       if ('append' === packet.name)
       {
         this.leader = packet.leader;
-        this.reset();
+        this.transition(FOLLOWER);
         reply({ success: true, term: this.term });
       }
       else if ('vote' === packet.name)
@@ -319,17 +321,6 @@ LifeRaft.prototype.on('data', function data(packet, reply)
         else
         {
           reply({ success: false, term: this.term });
-        }
-      }
-      break;
-    case CANDIDATE:
-      const majority = Math.floor(this.connections.length / 2) + 1;
-      if ('vote' === packet.name && packet.success)
-      {
-        this.votes++;
-        if (this.votes >= majority)
-        {
-          this.transition(LEADER);
         }
       }
       break;
@@ -391,7 +382,12 @@ LifeRaft.prototype.transition = function transition(state)
   {
     case FOLLOWER:
       this.timers.setTimeout('election', this.election, this.timeout());
-      this.emit('follower');
+      // <-- FIX: Only emit 'follower' after the initial state is set.
+      if (this.initialized)
+      {
+        this.emit('follower');
+      }
+      this.initialized = true;
       break;
     case CANDIDATE:
       this.timers.setTimeout('election', this.election, this.timeout());
